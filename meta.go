@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+var (
+	searchMap *SearchMap
+)
+
 type DepRef struct {
 	Adapter string   `json:"adapter"`        // required
 	Name    string   `json:"name,omitempty"` // fallback on config name
@@ -36,9 +40,17 @@ type SearchMap struct {
 	Full  map[string]string   // relative/key (no .json) -> absolute path
 }
 
+func init() {
+	contextMapJSON := os.Getenv("CORE_CONTEXT_MAP")
+	if contextMapJSON != "" {
+		_ = json.Unmarshal([]byte(contextMapJSON), &contextMap)
+	}
+}
+
 // NewSearchMap walks root and builds both Short and Full indexes.
 func NewSearchMap(root string) (*SearchMap, error) {
-	sm := &SearchMap{
+
+	searchMap = &SearchMap{
 		root:  root,
 		Short: make(map[string][]string),
 		Full:  make(map[string]string),
@@ -62,21 +74,22 @@ func NewSearchMap(root string) (*SearchMap, error) {
 			return fmt.Errorf("relativize %q: %w", path, err)
 		}
 		relKey := strings.TrimSuffix(rel, ".json")
-		sm.Full[relKey] = absPath
+		searchMap.Full[relKey] = absPath
 
 		shortKey := strings.TrimSuffix(d.Name(), ".json")
-		sm.Short[shortKey] = append(sm.Short[shortKey], absPath)
+		searchMap.Short[shortKey] = append(searchMap.Short[shortKey], absPath)
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return searchMap, err
 	}
-	return sm, nil
+	return searchMap, nil
 }
 
 // Resolve finds the one absolute path for name.
 // name can be either the short key ("dev") or full key ("env/dev").
 func (sm *SearchMap) Resolve(name string) (string, error) {
+
 	// Try full-key first
 	if p, ok := sm.Full[name]; ok {
 		return p, nil
@@ -169,25 +182,4 @@ func (sm *SearchMap) LoadAll(adapterID string) ([]*MetaHeader, error) {
 
 func LoadAll(adapterID string) ([]*MetaHeader, error) {
 	return searchMap.LoadAll(adapterID)
-}
-
-func LoadAllAdapters[T any](adapterID string) ([]T, error) {
-
-	var out []T
-
-	metas, err := searchMap.LoadAll(adapterID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, meta := range metas {
-		a, err := NewAdapterAs[T](adapterID, meta.Name)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-		out = append(out, a)
-	}
-
-	return out, nil
 }

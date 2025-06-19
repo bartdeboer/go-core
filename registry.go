@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -14,37 +13,14 @@ import (
 type ZeroFactory func() Adapter
 
 var (
-	searchPath = "./.core/"
 	mu         sync.RWMutex
 	factories  = map[string]ZeroFactory{} // adapterID -> Factory
 	adapters   = map[string]Adapter{}     // configName -> Adapter
 	contextMap = map[string]string{}
-	searchMap  *SearchMap
 )
 
 func Adapters() map[string]Adapter {
 	return adapters
-}
-
-func SetSearchPath(path string) {
-	searchPath = path
-}
-
-func init() {
-	contextMapJSON := os.Getenv("CORE_CONTEXT_MAP")
-	if contextMapJSON != "" {
-		_ = json.Unmarshal([]byte(contextMapJSON), &contextMap)
-	}
-	envPath := os.Getenv("CORE_SEARCH_PATH")
-	if envPath != "" {
-		searchPath = envPath
-	}
-	fmt.Printf("Search path: %s\n", searchPath)
-	var err error
-	searchMap, err = NewSearchMap(searchPath)
-	if err != nil {
-		log.Fatalf("failed to index configs: %v", err)
-	}
 }
 
 // Register adds an Adapter constructor to the global registry.
@@ -84,7 +60,7 @@ func IsRegistered(adapterID string) bool {
 	return ok
 }
 
-func NewAdapter(adapterID string, args ...string) (Adapter, error) {
+func (sm *SearchMap) NewAdapter(adapterID string, args ...string) (Adapter, error) {
 
 	mu.RLock()
 	zeroFac, ok := factories[strings.ToLower(adapterID)]
@@ -100,7 +76,7 @@ func NewAdapter(adapterID string, args ...string) (Adapter, error) {
 
 	// Attempt to find generic adapter configuration
 	// LoadMeta will handle name resolving
-	meta, err := searchMap.Load(adapterID, true)
+	meta, err := sm.Load(adapterID, true)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("failed reading config for adapter %s: %v", adapterID, err)
 	}
@@ -110,7 +86,7 @@ func NewAdapter(adapterID string, args ...string) (Adapter, error) {
 		// args = args[1:] // strip of adapter ID arg
 		// Attempt to find configuration
 		// LoadMeta will handle name resolving
-		itemMeta, err = searchMap.Load(configPath, true)
+		itemMeta, err = sm.Load(configPath, true)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed reading item config: %s for adapter %s: %v", configPath, adapterID, err)
 		}
@@ -209,6 +185,10 @@ func NewAdapter(adapterID string, args ...string) (Adapter, error) {
 	return adapter, nil
 }
 
+func NewAdapter(adapterID string, args ...string) (Adapter, error) {
+	return searchMap.NewAdapter(adapterID, args...)
+}
+
 func NewAdapterAs[T any](adapterID string, args ...string) (T, error) {
 	var zero T
 
@@ -225,4 +205,24 @@ func NewAdapterAs[T any](adapterID string, args ...string) (T, error) {
 		"adapter %q does not implement requested type: expected %T, got %T",
 		adapterID, zero, a,
 	)
+}
+
+func LoadAllAdapters[T any](adapterID string) ([]T, error) {
+	var out []T
+
+	metas, err := searchMap.LoadAll(adapterID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, meta := range metas {
+		a, err := NewAdapterAs[T](adapterID, meta.Name)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			continue
+		}
+		out = append(out, a)
+	}
+
+	return out, nil
 }
