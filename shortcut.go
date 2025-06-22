@@ -5,6 +5,7 @@ var (
 	NewCreaterAdapter       = NewAdapterAs[Creater]
 	NewUpdaterAdapter       = NewAdapterAs[Updater]
 	NewDeleterAdapter       = NewAdapterAs[Deleter]
+	NewReloaderAdapter      = NewAdapterAs[Reloader]
 	NewLifecycleAdapter     = NewAdapterAs[Lifecycle]
 	NewStarterAdapter       = NewAdapterAs[Starter]
 	NewStopperAdapter       = NewAdapterAs[Stopper]

@@ -33,6 +33,10 @@ type Deleter interface {
 	Delete(ctx context.Context, in ...string) error // remove everything
 }
 
+type Reloader interface {
+	Reload(ctx context.Context, in ...string) error // reload / rollout replace
+}
+
 // Every adapter must reconcile its resource.
 type Lifecycle interface {
 	Creater
