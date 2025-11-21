@@ -17,12 +17,24 @@ type ItemConfigurable interface {
 	ItemConfigPtr(name string) any
 }
 
+// Executor is a generic "do one unit of work" role.
+// It is intentionally minimal so it can represent pipeline steps,
+// tasks, jobs, commands, etc. in higher-level systems.
+type Executor interface {
+	Execute(ctx context.Context, in ...string) error
+}
+
+// Optional: generic executor with typed input payload.
+// type ExecutorOf[T any] interface {
+// 	Execute(ctx context.Context, in T) error
+// }
+
 type Builder interface {
-	Build(ctx context.Context, in ...string) error // create or first‑time apply
+	Build(ctx context.Context, in ...string) error // create or first-time apply
 }
 
 type Creater interface {
-	Create(ctx context.Context, in ...string) error // create or first‑time apply
+	Create(ctx context.Context, in ...string) error // create or first-time apply
 }
 
 type Updater interface {
@@ -44,7 +56,7 @@ type Lifecycle interface {
 	Deleter
 }
 
-// Optional run‑time control.
+// Optional run-time control.
 type Starter interface {
 	Start(ctx context.Context, in ...string) error // scale >0 / run
 }

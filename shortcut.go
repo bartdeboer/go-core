@@ -1,6 +1,7 @@
 package core
 
 var (
+	NewExecutorAdapter      = NewAdapterAs[Executor]
 	NewBuilderAdapter       = NewAdapterAs[Builder]
 	NewCreaterAdapter       = NewAdapterAs[Creater]
 	NewUpdaterAdapter       = NewAdapterAs[Updater]
