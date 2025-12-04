@@ -21,13 +21,9 @@ type ItemConfigurable interface {
 // It is intentionally minimal so it can represent pipeline steps,
 // tasks, jobs, commands, etc. in higher-level systems.
 type Executor interface {
-	Execute(ctx context.Context, in ...string) error
+	Run(ctx context.Context, in ...string) error
+	Output(ctx context.Context, in ...string) ([]byte, error)
 }
-
-// Optional: generic executor with typed input payload.
-// type ExecutorOf[T any] interface {
-// 	Execute(ctx context.Context, in T) error
-// }
 
 type Builder interface {
 	Build(ctx context.Context, in ...string) error // create or first-time apply

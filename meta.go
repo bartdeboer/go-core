@@ -47,8 +47,7 @@ func init() {
 	}
 }
 
-// NewSearchMap walks root and builds both Short and Full indexes.
-func NewSearchMap(root string) (*SearchMap, error) {
+func NewSearchMapWithFS(root string, fsys FileSystem) (*SearchMap, error) {
 
 	searchMap = &SearchMap{
 		root:  root,
@@ -56,7 +55,7 @@ func NewSearchMap(root string) (*SearchMap, error) {
 		Full:  make(map[string]string),
 	}
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := fsys.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -84,6 +83,11 @@ func NewSearchMap(root string) (*SearchMap, error) {
 		return searchMap, err
 	}
 	return searchMap, nil
+}
+
+// Keep your current constructor as a thin wrapper.
+func NewSearchMap(root string) (*SearchMap, error) {
+	return NewSearchMapWithFS(root, osFS{})
 }
 
 // Resolve finds the one absolute path for name.

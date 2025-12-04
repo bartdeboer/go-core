@@ -1,0 +1,6 @@
+{
+    "adapter": "lister-adp",
+    "spec": {
+        "note": "dummy provider config"
+    }
+}

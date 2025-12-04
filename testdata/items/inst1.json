@@ -1,0 +1,8 @@
+{
+    "adapter": "adp",
+    "name": "inst1",
+    "spec": {
+        "label": "instance-1",
+        "foo": "item-foo"
+    }
+  }

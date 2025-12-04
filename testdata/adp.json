@@ -1,0 +1,11 @@
+{
+    "adapter": "adp",
+    "spec": {
+        "foo": "global-foo"
+    },
+    "dependencies": {
+        "ListerProvider": {
+            "adapter": "lister-adp"
+        }
+    }
+}
