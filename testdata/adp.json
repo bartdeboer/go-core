@@ -1,5 +1,6 @@
 {
     "adapter": "adp",
+    "context": "ctx-adp",
     "spec": {
         "foo": "global-foo"
     },

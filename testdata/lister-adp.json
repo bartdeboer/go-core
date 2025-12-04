@@ -1,5 +1,6 @@
 {
     "adapter": "lister-adp",
+    "context": "ctx-lister",
     "spec": {
         "note": "dummy provider config"
     }

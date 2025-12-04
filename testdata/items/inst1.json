@@ -1,8 +1,9 @@
 {
     "adapter": "adp",
     "name": "inst1",
+    "context": "../../ctx-inst1",
     "spec": {
         "label": "instance-1",
         "foo": "item-foo"
     }
-  }
+}
