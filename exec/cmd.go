@@ -1,4 +1,4 @@
-package core
+package exec
 
 import (
 	"bytes"
@@ -42,7 +42,7 @@ type Command struct {
 //
 // Example:
 //
-//	cmd := core.NewCommand(exec, "gcloud", "config", "list")
+//	cmd := exec.NewCommand(execProvider, "gcloud", "config", "list")
 //	out, err := cmd.Output(ctx)
 func NewCommand(provider CommandExecutor, args ...string) *Command {
 	return &Command{
@@ -53,8 +53,9 @@ func NewCommand(provider CommandExecutor, args ...string) *Command {
 
 // --- Fluent configuration methods ---
 
+// WithArgs replaces the argument list.
 func (c *Command) WithArgs(args ...string) *Command {
-	c.Args = append(c.Args[:0], args...)
+	c.Args = append([]string(nil), args...)
 	return c
 }
 
@@ -86,27 +87,18 @@ func (c *Command) WithStderr(w io.Writer) *Command {
 // --- Execution ---
 
 // Run executes the command using its bound provider.
-//
-// We forward a *copy* of the command so callers modifying their Command instance
-// after running do not affect the provider.
 func (c *Command) Run(ctx context.Context) error {
 	if c.exec == nil {
-		return errors.New("core.Command: no CommandExecutor configured")
+		return errors.New("exec.Command: no CommandExecutor configured")
 	}
 	cmd := *c
 	return c.exec.RunCommand(ctx, cmd)
 }
 
 // Output executes the command and returns stdout as []byte.
-//
-// Implementation detail:
-//   - copy the Command
-//   - wrap Stdout in a buffer (teeing into existing Stdout if set)
-//   - pass the copy to the provider
-//   - return captured output
 func (c *Command) Output(ctx context.Context) ([]byte, error) {
 	if c.exec == nil {
-		return nil, errors.New("core.Command: no CommandExecutor configured")
+		return nil, errors.New("exec.Command: no CommandExecutor configured")
 	}
 
 	var buf bytes.Buffer
@@ -126,12 +118,10 @@ func (c *Command) Output(ctx context.Context) ([]byte, error) {
 
 // --- Convenience helpers for callers that don't need advanced features ---
 
-// Run executes a simple command using the provider (args only).
 func Run(ctx context.Context, provider CommandExecutor, args ...string) error {
 	return NewCommand(provider, args...).Run(ctx)
 }
 
-// Output executes a simple command and returns its stdout.
 func Output(ctx context.Context, provider CommandExecutor, args ...string) ([]byte, error) {
 	return NewCommand(provider, args...).Output(ctx)
 }

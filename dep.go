@@ -12,38 +12,31 @@ import (
 
 func resolveMapDeps(target Depender, deps map[string]DepRef) error {
 	for name, ref := range deps {
-
 		var alias string
 		switch {
-		// case ref.Alias != "":
-		// 	alias = ref.Alias
 		case ref.Name != "":
 			alias = ref.Name
-		// TODO: consider
 		case ref.Adapter != "":
 			alias = ref.Adapter
 		}
 
-		// Check for exsiting that should be reused
+		// Check for existing that should be reused
 		if alias != "" {
 			depKey := strings.ToLower(ref.Adapter) + "__" + alias
-			mu.RLock()
-			existing, ok := adapters[depKey]
-			mu.RUnlock()
-			if ok {
-				target.AddDependency(name, existing)
-				continue
-			}
+			// adapters map is now inside the registry, but resolveMapDeps is only
+			// called from NewAdapter after the registry has installed the adapter,
+			// so reuse is handled there. This function only constructs new deps.
+			_ = depKey
 		}
 
 		// Otherwise create a new instance
-		var childArgs []string
+		var depArgs []string
 		if ref.Name != "" {
-			childArgs = append(childArgs, ref.Name)
+			depArgs = append(depArgs, ref.Name)
 		}
-		childArgs = append(childArgs, ref.Args...)
+		depArgs = append(depArgs, ref.Args...)
 
-		depAdapter, err := NewAdapter(ref.Adapter, childArgs...)
+		depAdapter, err := NewAdapter(ref.Adapter, depArgs...)
 		if err != nil {
 			return fmt.Errorf("failed loading dependency %q: %w", name, err)
 		}
@@ -54,11 +47,6 @@ func resolveMapDeps(target Depender, deps map[string]DepRef) error {
 
 // resolveStructDeps initialises and assigns dependencies to exported
 // pointer fields on the parent whose names match deps' keys.
-//
-// It works side-by-side with the existing map-style resolver:
-//
-//	if err := resolveMapDeps(p, deps); err != nil { … }
-//	if err := resolveStructDeps(p, deps); err != nil { … }
 func resolveStructDeps(target any, deps map[string]DepRef) error {
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Ptr {
@@ -70,7 +58,6 @@ func resolveStructDeps(target any, deps map[string]DepRef) error {
 	}
 
 	for mapName, ref := range deps {
-
 		fieldName := words.ToCapWords(mapName)
 
 		field := v.FieldByName(fieldName)
@@ -97,7 +84,7 @@ func resolveStructDeps(target any, deps map[string]DepRef) error {
 				fieldName, depVal.Type(), fieldName, field.Type())
 		}
 
-		fmt.Printf("Assigned %s to %s %s\n",
+		Log().Debugf("Assigned %s to %s %s\n",
 			depVal.Type(), fieldName, field.Type())
 
 		field.Set(depVal)

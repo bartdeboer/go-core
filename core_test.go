@@ -63,8 +63,8 @@ func (a *Adp) SetContext(path string) {
 
 func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 	// Use configs from ./testdata.
-	if _, err := core.NewSearchMap("testdata"); err != nil {
-		t.Fatalf("NewSearchMap: %v", err)
+	if _, err := core.SetDefaultSearchPath("testdata"); err != nil {
+		t.Fatalf("SearchMap: %v", err)
 	}
 
 	// Register adapters.

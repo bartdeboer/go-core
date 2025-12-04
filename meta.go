@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	searchMap *SearchMap
+	// contextMap overrides contexts by name, filled from CORE_CONTEXT_MAP env.
+	contextMap = map[string]string{}
 )
 
 type DepRef struct {
@@ -24,7 +25,6 @@ type DepRef struct {
 // The Context is managed by the system to ensure those paths are adjusted
 // accordingly when the system runs in a container (with volume mounts).
 // Adapters still need to use the value manually to use the context.
-
 type MetaHeader struct {
 	Name         string            `json:"name"` // fallback on filename
 	APIVersion   string            `json:"api_version"`
@@ -36,6 +36,7 @@ type MetaHeader struct {
 
 type SearchMap struct {
 	root  string
+	fs    FileSystem
 	Short map[string][]string // basename (no .json) -> []absolute paths
 	Full  map[string]string   // relative/key (no .json) -> absolute path
 }
@@ -48,9 +49,9 @@ func init() {
 }
 
 func NewSearchMapWithFS(root string, fsys FileSystem) (*SearchMap, error) {
-
-	searchMap = &SearchMap{
+	sm := &SearchMap{
 		root:  root,
+		fs:    fsys,
 		Short: make(map[string][]string),
 		Full:  make(map[string]string),
 	}
@@ -73,19 +74,19 @@ func NewSearchMapWithFS(root string, fsys FileSystem) (*SearchMap, error) {
 			return fmt.Errorf("relativize %q: %w", path, err)
 		}
 		relKey := strings.TrimSuffix(rel, ".json")
-		searchMap.Full[relKey] = absPath
+		sm.Full[relKey] = absPath
 
 		shortKey := strings.TrimSuffix(d.Name(), ".json")
-		searchMap.Short[shortKey] = append(searchMap.Short[shortKey], absPath)
+		sm.Short[shortKey] = append(sm.Short[shortKey], absPath)
 		return nil
 	})
 	if err != nil {
-		return searchMap, err
+		return sm, err
 	}
-	return searchMap, nil
+	return sm, nil
 }
 
-// Keep your current constructor as a thin wrapper.
+// Thin wrapper using osFS.
 func NewSearchMap(root string) (*SearchMap, error) {
 	return NewSearchMapWithFS(root, osFS{})
 }
@@ -93,7 +94,6 @@ func NewSearchMap(root string) (*SearchMap, error) {
 // Resolve finds the one absolute path for name.
 // name can be either the short key ("dev") or full key ("env/dev").
 func (sm *SearchMap) Resolve(name string) (string, error) {
-
 	// Try full-key first
 	if p, ok := sm.Full[name]; ok {
 		return p, nil
@@ -121,10 +121,10 @@ func (sm *SearchMap) Load(name string, verbose bool) (*MetaHeader, error) {
 	}
 
 	if verbose {
-		fmt.Printf("Reading %s config: %s\n", name, p)
+		Log().Debugf("Reading %s config: %s\n", name, p)
 	}
 
-	data, err := os.ReadFile(p)
+	data, err := sm.fs.ReadFile(p)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", p, err)
 	}
@@ -170,7 +170,7 @@ func (sm *SearchMap) LoadAll(adapterID string) ([]*MetaHeader, error) {
 	for _, key := range keys {
 		meta, err := sm.Load(key, false)
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Printf("Could not find config for: %s\n", key)
+			Log().Infof("Could not find config for: %s\n", key)
 			continue
 		}
 		if err != nil {
@@ -184,6 +184,11 @@ func (sm *SearchMap) LoadAll(adapterID string) ([]*MetaHeader, error) {
 	return result, nil
 }
 
+// LoadAll is a convenience that uses the default registry's SearchMap.
 func LoadAll(adapterID string) ([]*MetaHeader, error) {
-	return searchMap.LoadAll(adapterID)
+	sm := defaultRegistry.searchMap
+	if sm == nil {
+		return nil, fmt.Errorf("core: no SearchMap configured; call NewSearchMap first")
+	}
+	return sm.LoadAll(adapterID)
 }

@@ -2,8 +2,6 @@ package core
 
 import "context"
 
-type Adapter any
-
 // Configurable is called with configurations that match the adapter ID
 type Configurable interface {
 	ConfigPtr() any
