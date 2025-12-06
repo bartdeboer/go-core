@@ -184,7 +184,7 @@ func (sm *SearchMap) LoadAll(adapterID string) ([]*MetaHeader, error) {
 	return result, nil
 }
 
-// LoadAll is a convenience that uses the default registry's SearchMap.
+// LoadAll is a convenience function that uses the default registry's SearchMap.
 func LoadAll(adapterID string) ([]*MetaHeader, error) {
 	sm := defaultRegistry.searchMap
 	if sm == nil {

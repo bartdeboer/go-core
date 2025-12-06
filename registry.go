@@ -111,10 +111,34 @@ func applyContext(adapter Adapter, metas ...*MetaHeader) {
 		return
 	}
 	for _, m := range metas {
-		if m != nil && m.Context != "" {
+		if m == nil {
+			continue
+		}
+		Log().Debugf("Setting context for adapter %s: %s\n", m.Name, m.Context)
+		if m.Context != "" {
 			contextual.SetContext(m.Context)
 		}
 	}
+}
+
+func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
+	implements := []string{}
+	if _, ok := zero.(Configurable); ok {
+		implements = append(implements, "Configurable")
+	}
+	if _, ok := zero.(ItemConfigurable); ok {
+		implements = append(implements, "ItemConfigurable")
+	}
+	if _, ok := zero.(Hydrater); ok {
+		implements = append(implements, "Hydrater")
+	}
+	if _, ok := zero.(Contextual); ok {
+		implements = append(implements, "Contextual")
+	}
+	if _, ok := zero.(Depender); ok {
+		implements = append(implements, "Depender")
+	}
+	Log().Debugf("Request adapter %s (%s) %v\n", adapterID, strings.Join(implements, ","), args)
 }
 
 // NewAdapter constructs or reuses an adapter instance in this registry.
@@ -129,6 +153,8 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 	}
 
 	zero := zeroFac()
+
+	debugAdapterInfo(zero, adapterID, args...)
 
 	var meta *MetaHeader
 	var itemMeta *MetaHeader
@@ -174,6 +200,7 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 	// Adapter-level config.
 	if meta != nil && len(meta.RawSpec) > 0 {
 		if configurable, ok := adapter.(Configurable); ok {
+			Log().Debugf("Setting config for adapter %s", adapterID)
 			if err := json.Unmarshal(meta.RawSpec, configurable.ConfigPtr()); err != nil {
 				return nil, fmt.Errorf("decode %s spec: %w", adapterID, err)
 			}
@@ -183,6 +210,7 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 	// Item-level config overlay.
 	if itemMeta != nil && len(itemMeta.RawSpec) > 0 {
 		if itemConfigurable, ok := adapter.(ItemConfigurable); ok {
+			Log().Debugf("Setting item config for adapter %s", adapterID)
 			if err := json.Unmarshal(itemMeta.RawSpec, itemConfigurable.ItemConfigPtr(itemMeta.Name)); err != nil {
 				return nil, fmt.Errorf("decode %s spec: %w", itemMeta.Name, err)
 			}

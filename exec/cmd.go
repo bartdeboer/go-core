@@ -27,6 +27,7 @@ type CommandExecutor interface {
 type Command struct {
 	exec CommandExecutor
 
+	Name string
 	Args []string
 
 	Env []string
@@ -44,9 +45,10 @@ type Command struct {
 //
 //	cmd := exec.NewCommand(execProvider, "gcloud", "config", "list")
 //	out, err := cmd.Output(ctx)
-func NewCommand(provider CommandExecutor, args ...string) *Command {
+func NewCommand(provider CommandExecutor, name string, args ...string) *Command {
 	return &Command{
 		exec: provider,
+		Name: name,
 		Args: args,
 	}
 }
@@ -118,10 +120,10 @@ func (c *Command) Output(ctx context.Context) ([]byte, error) {
 
 // --- Convenience helpers for callers that don't need advanced features ---
 
-func Run(ctx context.Context, provider CommandExecutor, args ...string) error {
-	return NewCommand(provider, args...).Run(ctx)
+func Run(ctx context.Context, provider CommandExecutor, name string, args ...string) error {
+	return NewCommand(provider, name, args...).Run(ctx)
 }
 
-func Output(ctx context.Context, provider CommandExecutor, args ...string) ([]byte, error) {
-	return NewCommand(provider, args...).Output(ctx)
+func Output(ctx context.Context, provider CommandExecutor, name string, args ...string) ([]byte, error) {
+	return NewCommand(provider, name, args...).Output(ctx)
 }

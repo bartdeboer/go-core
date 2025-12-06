@@ -30,11 +30,11 @@ func init() {
 // RunCommand implements CommandExecutor.
 // It executes the given Command using os/exec.
 func (e *Executor) RunCommand(ctx context.Context, cmd Command) error {
-	if len(cmd.Args) == 0 {
+	if cmd.Name == "" {
 		return nil
 	}
 
-	c := exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
+	c := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 
 	// Env & Dir
 	if len(cmd.Env) > 0 {
@@ -64,10 +64,10 @@ func (e *Executor) RunCommand(ctx context.Context, cmd Command) error {
 	return c.Run()
 }
 
-func (e *Executor) Run(ctx context.Context, args ...string) error {
-	return Run(ctx, e, args...)
+func (e *Executor) Run(ctx context.Context, name string, args ...string) error {
+	return Run(ctx, e, name, args...)
 }
 
-func (e *Executor) Output(ctx context.Context, args ...string) ([]byte, error) {
-	return Output(ctx, e, args...)
+func (e *Executor) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return Output(ctx, e, name, args...)
 }
