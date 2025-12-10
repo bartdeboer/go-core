@@ -104,21 +104,23 @@ func applyDeps(adapter Adapter, meta *MetaHeader) error {
 }
 
 // applyContext calls SetContext for each meta that has Context set.
-// Order matters: later metas override earlier ones.
-func applyContext(adapter Adapter, metas ...*MetaHeader) {
+// Returns the last non-empty context applied.
+func applyContext(adapter Adapter, metas ...*MetaHeader) string {
 	contextual, ok := adapter.(Contextual)
 	if !ok {
-		return
+		return ""
 	}
+
+	var last string
 	for _, m := range metas {
-		if m == nil {
+		if m == nil || m.Context == "" {
 			continue
 		}
 		Log().Debugf("Setting context for adapter %s: %s\n", m.Name, m.Context)
-		if m.Context != "" {
-			contextual.SetContext(m.Context)
-		}
+		contextual.SetContext(m.Context)
+		last = m.Context
 	}
+	return last
 }
 
 func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
