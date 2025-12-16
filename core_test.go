@@ -29,6 +29,14 @@ func (l *ListerAdp) SetContext(path string) {
 	l.ContextPath = path
 }
 
+// ChildAdp has NO config file => should receive propagated parent context.
+type ChildAdp struct {
+	ContextPath string
+}
+
+func (c *ChildAdp) List(ctx context.Context) ([]string, error) { return []string{"child"}, nil }
+func (c *ChildAdp) SetContext(path string)                     { c.ContextPath = path }
+
 // Adp is the main adapter under test.
 // It uses a single Spec struct for both adapter-level and item-level config.
 // Item config should override adapter config fields.
@@ -43,6 +51,7 @@ type Adp struct {
 	// Injected from dependencies in adp.json:
 	// "dependencies": { "ListerProvider": { "adapter": "lister-adp" } }
 	ListerProvider core.Lister `core:"required"`
+	ChildProvider  core.Lister `core:"required"` // has NO config/context; should inherit parent
 }
 
 // ConfigPtr makes Adp implement core.Configurable.
@@ -69,6 +78,7 @@ func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 
 	// Register adapters.
 	core.Register("lister-adp", func() core.Adapter { return &ListerAdp{} })
+	core.Register("child-adp", func() core.Adapter { return &ChildAdp{} })
 	core.Register("adp", func() core.Adapter { return &Adp{} })
 
 	// Create an instance of "adp" using the item config "items/inst1".
@@ -105,6 +115,10 @@ func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 	lister, ok := adp.ListerProvider.(*ListerAdp)
 	if !ok {
 		t.Fatalf("ListerProvider has type %T, want *ListerAdp", adp.ListerProvider)
+	}
+	child, ok := adp.ChildProvider.(*ChildAdp)
+	if !ok {
+		t.Fatalf("ChildProvider has type %T, want *ChildAdp", adp.ChildProvider)
 	}
 
 	// And that its config was loaded from lister-adp.json.
@@ -148,5 +162,42 @@ func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 	}
 	if lister.ContextPath != expectedListerCtx {
 		t.Fatalf("ListerAdp.ContextPath = %q, want %q", lister.ContextPath, expectedListerCtx)
+	}
+
+	// ChildAdp has no config => should inherit the parent's resolved context.
+	if child.ContextPath != expectedAdpCtx {
+		t.Fatalf("ChildAdp.ContextPath = %q, want %q (inherited from parent)", child.ContextPath, expectedAdpCtx)
+	}
+}
+
+func TestAdapter_ContextAffectsDependencyReuse(t *testing.T) {
+	if _, err := core.SetDefaultSearchPath("testdata"); err != nil {
+		t.Fatalf("SearchMap: %v", err)
+	}
+
+	// Re-registering in a second test is fine in this package; keys are per-process.
+	core.Register("lister-adp", func() core.Adapter { return &ListerAdp{} })
+	core.Register("child-adp", func() core.Adapter { return &ChildAdp{} })
+	core.Register("adp", func() core.Adapter { return &Adp{} })
+
+	a1, err := core.NewAdapterAs[*Adp]("adp", "items/inst1")
+	if err != nil {
+		t.Fatalf("NewAdapterAs(inst1): %v", err)
+	}
+	a2, err := core.NewAdapterAs[*Adp]("adp", "items/inst2")
+	if err != nil {
+		t.Fatalf("NewAdapterAs(inst2): %v", err)
+	}
+
+	l1 := a1.ListerProvider.(*ListerAdp)
+	l2 := a2.ListerProvider.(*ListerAdp)
+	if l1 != l2 {
+		t.Fatalf("expected lister-adp to be reused (same ctx-lister), but got different instances: %p != %p", l1, l2)
+	}
+
+	c1 := a1.ChildProvider.(*ChildAdp)
+	c2 := a2.ChildProvider.(*ChildAdp)
+	if c1 == c2 {
+		t.Fatalf("expected child-adp NOT to be reused (different parent contexts), but got same instance: %p", c1)
 	}
 }

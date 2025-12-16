@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"strings"
 	"sync"
@@ -85,42 +86,57 @@ func (r *Registry) getFactory(adapterID string) (ZeroFactory, error) {
 	return zeroFac, nil
 }
 
-// applyDeps wires dependencies into an adapter using both map-style (Depender) and
-// struct-field injection.
-func applyDeps(adapter Adapter, meta *MetaHeader) error {
-	if meta == nil || meta.Dependencies == nil {
-		return nil
+func keyGen(adapter Adapter, adapterID string, item *MetaHeader, contextPath string) string {
+	key := strings.ToLower(adapterID)
+
+	if item != nil && item.Name != "" {
+		key += "__" + item.Name
 	}
 
-	if depender, ok := adapter.(Depender); ok {
-		if err := resolveMapDeps(depender, meta.Dependencies); err != nil {
-			return err
+	// Only context-discriminate if the adapter cares about context.
+	if _, ok := adapter.(Contextual); !ok || contextPath == "" {
+		return key
+	}
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(contextPath))
+
+	return fmt.Sprintf("%s__%016x", key, h.Sum64())
+}
+
+func applyConfig(adapter Adapter, adapterID string, meta, itemMeta *MetaHeader) error {
+	// Adapter-level config.
+	if meta != nil && len(meta.RawSpec) > 0 {
+		if configurable, ok := adapter.(Configurable); ok {
+			Log().Debugf("Setting config for adapter %s", adapterID)
+			if err := json.Unmarshal(meta.RawSpec, configurable.ConfigPtr()); err != nil {
+				return fmt.Errorf("decode %s spec: %w", adapterID, err)
+			}
 		}
 	}
-	if err := resolveStructDeps(adapter, meta.Dependencies); err != nil {
-		return err
+	// Item-level config overlay.
+	if itemMeta != nil && len(itemMeta.RawSpec) > 0 {
+		if itemConfigurable, ok := adapter.(ItemConfigurable); ok {
+			Log().Debugf("Setting item config for adapter %s", adapterID)
+			if err := json.Unmarshal(itemMeta.RawSpec, itemConfigurable.ItemConfigPtr(itemMeta.Name)); err != nil {
+				return fmt.Errorf("decode %s spec: %w", itemMeta.Name, err)
+			}
+		}
 	}
 	return nil
 }
 
-// applyContext calls SetContext for each meta that has Context set.
-// Returns the last non-empty context applied.
-func applyContext(adapter Adapter, metas ...*MetaHeader) string {
-	contextual, ok := adapter.(Contextual)
-	if !ok {
-		return ""
-	}
-
-	var last string
+func resolveContext(defaultContext string, metas ...*MetaHeader) string {
+	newContext := defaultContext
 	for _, m := range metas {
 		if m == nil || m.Context == "" {
 			continue
 		}
-		Log().Debugf("Setting context for adapter %s: %s\n", m.Name, m.Context)
-		contextual.SetContext(m.Context)
-		last = m.Context
+		newContext = m.Context
 	}
-	return last
+	return newContext
 }
 
 func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
@@ -143,8 +159,12 @@ func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
 	Log().Debugf("Request adapter %s (%s) %v\n", adapterID, strings.Join(implements, ","), args)
 }
 
-// NewAdapter constructs or reuses an adapter instance in this registry.
 func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error) {
+	return r.newAdapterWithContext(adapterID, "", args...)
+}
+
+// NewAdapter constructs or reuses an adapter instance in this registry.
+func (r *Registry) newAdapterWithContext(adapterID string, defaultContext string, args ...string) (Adapter, error) {
 	if r.searchMap == nil {
 		return nil, fmt.Errorf("core: no SearchMap configured; call NewSearchMap first")
 	}
@@ -167,7 +187,7 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 		return nil, fmt.Errorf("failed reading config for adapter %s: %v", adapterID, err)
 	}
 
-	// Item-level config (optional, if adapter supports it and args provided).
+	// Item-level config (optional, if adapter supports it and config arg provided).
 	if _, isItemConfigurable := zero.(ItemConfigurable); isItemConfigurable && len(args) > 0 {
 		configPath := args[0]
 		itemMeta, err = r.searchMap.Load(configPath, true)
@@ -176,11 +196,9 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 		}
 	}
 
-	// Compute registry cache key.
-	regKey := strings.ToLower(adapterID)
-	if itemMeta != nil && itemMeta.Name != "" {
-		regKey = regKey + "__" + itemMeta.Name
-	}
+	resolvedContext := resolveContext(defaultContext, meta, itemMeta)
+
+	regKey := keyGen(zero, adapterID, itemMeta, resolvedContext)
 
 	// Reuse existing adapter if present.
 	r.mu.RLock()
@@ -192,41 +210,29 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 	}
 
 	// Otherwise create a new instance.
-	Log().Debugf("Creating adapter: %s %v\n", adapterID, args)
+	Log().Debugf("Creating adapter: %s %s %v\n", adapterID, regKey, args)
 	adapter := zero
 
 	r.mu.Lock()
 	r.adapters[regKey] = adapter
 	r.mu.Unlock()
 
-	// Adapter-level config.
-	if meta != nil && len(meta.RawSpec) > 0 {
-		if configurable, ok := adapter.(Configurable); ok {
-			Log().Debugf("Setting config for adapter %s", adapterID)
-			if err := json.Unmarshal(meta.RawSpec, configurable.ConfigPtr()); err != nil {
-				return nil, fmt.Errorf("decode %s spec: %w", adapterID, err)
-			}
-		}
+	// Configs
+	if err := applyConfig(adapter, adapterID, meta, itemMeta); err != nil {
+		return nil, err
 	}
 
-	// Item-level config overlay.
-	if itemMeta != nil && len(itemMeta.RawSpec) > 0 {
-		if itemConfigurable, ok := adapter.(ItemConfigurable); ok {
-			Log().Debugf("Setting item config for adapter %s", adapterID)
-			if err := json.Unmarshal(itemMeta.RawSpec, itemConfigurable.ItemConfigPtr(itemMeta.Name)); err != nil {
-				return nil, fmt.Errorf("decode %s spec: %w", itemMeta.Name, err)
-			}
-		}
+	// Set the context (allowing dependency override logic).
+	if contextual, ok := adapter.(Contextual); ok && resolvedContext != "" {
+		Log().Debugf("Setting default context for adapter %s: %s\n", adapterID, resolvedContext)
+		contextual.SetContext(resolvedContext)
 	}
-
-	// Contexts (adapter-level then item-level).
-	applyContext(adapter, meta, itemMeta)
 
 	// Dependencies.
-	if err := applyDeps(adapter, meta); err != nil {
+	if err := applyDeps(adapter, resolvedContext, meta); err != nil {
 		return nil, fmt.Errorf("dependency resolution for %s: %w", adapterID, err)
 	}
-	if err := applyDeps(adapter, itemMeta); err != nil {
+	if err := applyDeps(adapter, resolvedContext, itemMeta); err != nil {
 		return nil, fmt.Errorf("dependency resolution for %s: %w", adapterID, err)
 	}
 
@@ -346,6 +352,10 @@ func IsRegistered(adapterID string) bool {
 
 func NewAdapter(adapterID string, args ...string) (Adapter, error) {
 	return defaultRegistry.NewAdapter(adapterID, args...)
+}
+
+func newAdapterWithContext(adapterID string, defaultContext string, args ...string) (Adapter, error) {
+	return defaultRegistry.newAdapterWithContext(adapterID, defaultContext, args...)
 }
 
 // NewAdapterAs constructs an adapter from the default registry and asserts it implements T.

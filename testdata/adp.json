@@ -1,12 +1,9 @@
 {
     "adapter": "adp",
     "context": "ctx-adp",
-    "spec": {
-        "foo": "global-foo"
-    },
+    "spec": { "foo": "global-foo" },
     "dependencies": {
-        "ListerProvider": {
-            "adapter": "lister-adp"
-        }
+        "ListerProvider": { "adapter": "lister-adp" },
+        "ChildProvider":  { "adapter": "child-adp" }
     }
 }

@@ -20,6 +20,9 @@ type DepRef struct {
 	Adapter string   `json:"adapter"`        // required
 	Name    string   `json:"name,omitempty"` // fallback on config name
 	Args    []string `json:"args,omitempty"` // extra CLI-style args
+
+	// Optional custom override for the dependency's context.
+	// Context string `json:"context,omitempty"`
 }
 
 // The Context is managed by the system to ensure those paths are adjusted
@@ -114,28 +117,29 @@ func (sm *SearchMap) Resolve(name string) (string, error) {
 }
 
 // Load locates, reads, unmarshals and post-processes a MetaHeader.
+// Should ensure MetaHeader.Name is set.
 func (sm *SearchMap) Load(name string, verbose bool) (*MetaHeader, error) {
-	p, err := sm.Resolve(name)
+	cfgPath, err := sm.Resolve(name)
 	if err != nil {
 		return nil, err
 	}
 
 	if verbose {
-		Log().Debugf("Reading %s config: %s\n", name, p)
+		Log().Debugf("Reading %s config: %s\n", name, cfgPath)
 	}
 
-	data, err := sm.fs.ReadFile(p)
+	data, err := sm.fs.ReadFile(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", p, err)
+		return nil, fmt.Errorf("read %s: %w", cfgPath, err)
 	}
 
 	var h MetaHeader
 	if err := json.Unmarshal(data, &h); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", p, err)
+		return nil, fmt.Errorf("decode %s: %w", cfgPath, err)
 	}
 
 	if strings.TrimSpace(h.Name) == "" {
-		h.Name = strings.TrimSuffix(filepath.Base(p), ".json")
+		h.Name = strings.TrimSuffix(filepath.Base(cfgPath), ".json")
 	}
 
 	// Override from env/contextMap if present
@@ -145,7 +149,7 @@ func (sm *SearchMap) Load(name string, verbose bool) (*MetaHeader, error) {
 
 	// Make Context absolute if it’s relative
 	if h.Context != "" && !filepath.IsAbs(h.Context) {
-		dir := filepath.Dir(p)
+		dir := filepath.Dir(cfgPath)
 		absCtx, err := filepath.Abs(filepath.Join(dir, h.Context))
 		if err != nil {
 			return nil, fmt.Errorf("resolve context %q: %w", h.Context, err)

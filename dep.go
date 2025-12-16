@@ -10,7 +10,25 @@ import (
 	"github.com/bartdeboer/words"
 )
 
-func resolveMapDeps(target Depender, deps map[string]DepRef) error {
+// applyDeps wires dependencies into an adapter using both map-style (Depender) and
+// struct-field injection.
+func applyDeps(adapter Adapter, parentContext string, meta *MetaHeader) error {
+	if meta == nil || meta.Dependencies == nil {
+		return nil
+	}
+
+	if depender, ok := adapter.(Depender); ok {
+		if err := resolveMapDeps(depender, parentContext, meta.Dependencies); err != nil {
+			return err
+		}
+	}
+	if err := resolveStructDeps(adapter, parentContext, meta.Dependencies); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resolveMapDeps(target Depender, parentContext string, deps map[string]DepRef) error {
 	for name, ref := range deps {
 		var alias string
 		switch {
@@ -36,7 +54,7 @@ func resolveMapDeps(target Depender, deps map[string]DepRef) error {
 		}
 		depArgs = append(depArgs, ref.Args...)
 
-		depAdapter, err := NewAdapter(ref.Adapter, depArgs...)
+		depAdapter, err := newAdapterWithContext(ref.Adapter, parentContext, depArgs...)
 		if err != nil {
 			return fmt.Errorf("failed loading dependency %q: %w", name, err)
 		}
@@ -47,7 +65,7 @@ func resolveMapDeps(target Depender, deps map[string]DepRef) error {
 
 // resolveStructDeps initialises and assigns dependencies to exported
 // pointer fields on the parent whose names match deps' keys.
-func resolveStructDeps(target any, deps map[string]DepRef) error {
+func resolveStructDeps(target any, parentContext string, deps map[string]DepRef) error {
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Ptr {
 		return fmt.Errorf("resolveStructDeps: target must be a pointer, got %T", target)
@@ -73,7 +91,7 @@ func resolveStructDeps(target any, deps map[string]DepRef) error {
 			childArgs = append([]string{ref.Name}, childArgs...)
 		}
 
-		dep, err := NewAdapter(ref.Adapter, childArgs...)
+		dep, err := newAdapterWithContext(ref.Adapter, parentContext, childArgs...)
 		if err != nil {
 			return fmt.Errorf("dependency %q: %w", fieldName, err)
 		}
