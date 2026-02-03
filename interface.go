@@ -95,8 +95,12 @@ type Depender interface {
 	AddDependency(name string, adapter Adapter)
 }
 
-type Contextual interface {
-	SetContext(path string) // idempotent environment setup
+type WorkDirSettable interface {
+	SetWorkDir(hostPath string)
+}
+
+type Worker interface {
+	InternalWorkDir() string
 }
 
 type Uploader interface {

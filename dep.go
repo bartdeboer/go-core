@@ -12,23 +12,35 @@ import (
 
 // applyDeps wires dependencies into an adapter using both map-style (Depender) and
 // struct-field injection.
-func applyDeps(adapter Adapter, parentContext string, meta *MetaHeader) error {
-	if meta == nil || meta.Dependencies == nil {
+func applyDeps(adapter Adapter, parentWorkDir string, meta *MetaHeader) error {
+	// infer from struct tags regardless of meta
+	inferred, err := findStructDeps(adapter)
+	if err != nil {
+		return err
+	}
+
+	var cfg map[string]DepRef
+	if meta != nil {
+		cfg = meta.Dependencies
+	}
+
+	deps := mergeDeps(cfg, inferred)
+	if deps == nil {
 		return nil
 	}
 
 	if depender, ok := adapter.(Depender); ok {
-		if err := resolveMapDeps(depender, parentContext, meta.Dependencies); err != nil {
+		if err := resolveMapDeps(depender, parentWorkDir, deps); err != nil {
 			return err
 		}
 	}
-	if err := resolveStructDeps(adapter, parentContext, meta.Dependencies); err != nil {
+	if err := resolveStructDeps(adapter, parentWorkDir, deps); err != nil {
 		return err
 	}
 	return nil
 }
 
-func resolveMapDeps(target Depender, parentContext string, deps map[string]DepRef) error {
+func resolveMapDeps(target Depender, parentWorkDir string, deps map[string]DepRef) error {
 	for name, ref := range deps {
 		var alias string
 		switch {
@@ -54,7 +66,7 @@ func resolveMapDeps(target Depender, parentContext string, deps map[string]DepRe
 		}
 		depArgs = append(depArgs, ref.Args...)
 
-		depAdapter, err := newAdapterWithContext(ref.Adapter, parentContext, depArgs...)
+		depAdapter, err := newAdapterWithContext(ref.Adapter, parentWorkDir, depArgs...)
 		if err != nil {
 			return fmt.Errorf("failed loading dependency %q: %w", name, err)
 		}
@@ -65,7 +77,7 @@ func resolveMapDeps(target Depender, parentContext string, deps map[string]DepRe
 
 // resolveStructDeps initialises and assigns dependencies to exported
 // pointer fields on the parent whose names match deps' keys.
-func resolveStructDeps(target any, parentContext string, deps map[string]DepRef) error {
+func resolveStructDeps(target any, parentWorkDir string, deps map[string]DepRef) error {
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Ptr {
 		return fmt.Errorf("resolveStructDeps: target must be a pointer, got %T", target)
@@ -91,7 +103,8 @@ func resolveStructDeps(target any, parentContext string, deps map[string]DepRef)
 			childArgs = append([]string{ref.Name}, childArgs...)
 		}
 
-		dep, err := newAdapterWithContext(ref.Adapter, parentContext, childArgs...)
+		// Pass the parent context path
+		dep, err := newAdapterWithContext(ref.Adapter, parentWorkDir, childArgs...)
 		if err != nil {
 			return fmt.Errorf("dependency %q: %w", fieldName, err)
 		}
@@ -102,7 +115,7 @@ func resolveStructDeps(target any, parentContext string, deps map[string]DepRef)
 				fieldName, depVal.Type(), fieldName, field.Type())
 		}
 
-		Log().Debugf("Assigned %s to %s %s\n",
+		Log().Debugf("assigned %s to %s %s\n",
 			depVal.Type(), fieldName, field.Type())
 
 		field.Set(depVal)
@@ -142,4 +155,77 @@ func validateRequiredDeps(target any) error {
 	}
 
 	return nil
+}
+
+// findStructDeps inspects exported fields for `core` tags that specify an adapter id.
+// It returns a deps map keyed by *field name*.
+func findStructDeps(target any) (map[string]DepRef, error) {
+	v := reflect.ValueOf(target)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return nil, fmt.Errorf("findStructDeps: target must be non-nil pointer, got %T", target)
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("findStructDeps: target must point to struct, got %T", target)
+	}
+
+	t := v.Type()
+	out := make(map[string]DepRef)
+
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+
+		// Only exported fields
+		if sf.PkgPath != "" {
+			continue
+		}
+
+		tag := strings.TrimSpace(sf.Tag.Get("core"))
+		if tag == "" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+
+		var adapterID string
+
+		switch {
+		case len(parts) >= 2:
+			// Positional form: first token is the adapter key (even if it's "required").
+			adapterID = strings.TrimSpace(parts[0])
+		default:
+			// Single token form: either a flag (required) or a key.
+			p := strings.TrimSpace(parts[0])
+			if !strings.EqualFold(p, "required") {
+				adapterID = p
+			}
+		}
+
+		if adapterID == "" {
+			continue
+		}
+
+		out[sf.Name] = DepRef{Adapter: adapterID}
+	}
+
+	return out, nil
+}
+
+func mergeDeps(config map[string]DepRef, inferred map[string]DepRef) map[string]DepRef {
+	if config == nil && inferred == nil {
+		return nil
+	}
+	out := make(map[string]DepRef)
+
+	// config first (wins)
+	for k, v := range config {
+		out[k] = v
+	}
+	// fill missing from inferred
+	for k, v := range inferred {
+		if _, exists := out[k]; !exists {
+			out[k] = v
+		}
+	}
+	return out
 }

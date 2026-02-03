@@ -1,6 +1,6 @@
 {
     "adapter": "adp",
-    "context": "ctx-adp",
+    "work_dir": "ctx-adp",
     "spec": { "foo": "global-foo" },
     "dependencies": {
         "ListerProvider": { "adapter": "lister-adp" },

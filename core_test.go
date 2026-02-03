@@ -11,8 +11,8 @@ import (
 
 // ListerAdp implements core.Lister and is configurable via lister-adp.json.
 type ListerAdp struct {
-	Note        string `json:"note"`
-	ContextPath string
+	Note    string `json:"note"`
+	WorkDir string
 }
 
 func (l *ListerAdp) List(ctx context.Context) ([]string, error) {
@@ -24,18 +24,18 @@ func (l *ListerAdp) ConfigPtr() any {
 	return l
 }
 
-// SetContext makes ListerAdp implement core.Contextual.
-func (l *ListerAdp) SetContext(path string) {
-	l.ContextPath = path
+// SetContext makes ListerAdp implement core.WorkDirSetter.
+func (l *ListerAdp) SetWorkDir(path string) {
+	l.WorkDir = path
 }
 
 // ChildAdp has NO config file => should receive propagated parent context.
 type ChildAdp struct {
-	ContextPath string
+	WorkDir string
 }
 
 func (c *ChildAdp) List(ctx context.Context) ([]string, error) { return []string{"child"}, nil }
-func (c *ChildAdp) SetContext(path string)                     { c.ContextPath = path }
+func (c *ChildAdp) SetWorkDir(path string)                     { c.WorkDir = path }
 
 // Adp is the main adapter under test.
 // It uses a single Spec struct for both adapter-level and item-level config.
@@ -46,7 +46,7 @@ type Adp struct {
 		Label string `json:"label"`
 	}
 
-	ContextPath string
+	WorkDir string
 
 	// Injected from dependencies in adp.json:
 	// "dependencies": { "ListerProvider": { "adapter": "lister-adp" } }
@@ -66,8 +66,8 @@ func (a *Adp) ItemConfigPtr(name string) any {
 }
 
 // SetContext makes Adp implement core.Contextual.
-func (a *Adp) SetContext(path string) {
-	a.ContextPath = path
+func (a *Adp) SetWorkDir(path string) {
+	a.WorkDir = path
 }
 
 func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
@@ -147,8 +147,8 @@ func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filepath.Abs for Adp: %v", err)
 	}
-	if adp.ContextPath != expectedAdpCtx {
-		t.Fatalf("Adp.ContextPath = %q, want %q", adp.ContextPath, expectedAdpCtx)
+	if adp.WorkDir != expectedAdpCtx {
+		t.Fatalf("Adp.WorkDir = %q, want %q", adp.WorkDir, expectedAdpCtx)
 	}
 
 	// ListerAdp: only adapter-level context.
@@ -160,13 +160,13 @@ func TestAdapter_ConfigOverride_DependencyInjection_AndContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filepath.Abs for ListerAdp: %v", err)
 	}
-	if lister.ContextPath != expectedListerCtx {
-		t.Fatalf("ListerAdp.ContextPath = %q, want %q", lister.ContextPath, expectedListerCtx)
+	if lister.WorkDir != expectedListerCtx {
+		t.Fatalf("ListerAdp.WorkDir = %q, want %q", lister.WorkDir, expectedListerCtx)
 	}
 
 	// ChildAdp has no config => should inherit the parent's resolved context.
-	if child.ContextPath != expectedAdpCtx {
-		t.Fatalf("ChildAdp.ContextPath = %q, want %q (inherited from parent)", child.ContextPath, expectedAdpCtx)
+	if child.WorkDir != expectedAdpCtx {
+		t.Fatalf("ChildAdp.WorkDir = %q, want %q (inherited from parent)", child.WorkDir, expectedAdpCtx)
 	}
 }
 

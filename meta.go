@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	// contextMap overrides contexts by name, filled from CORE_CONTEXT_MAP env.
-	contextMap = map[string]string{}
+	// workDirMap overrides work directories by name, filled from CORE_WORK_DIR_MAP env.
+	workDirMap = map[string]string{}
 )
 
 type DepRef struct {
@@ -33,8 +33,8 @@ type MetaHeader struct {
 	APIVersion   string            `json:"api_version"`
 	Adapter      string            `json:"adapter,omitempty"`
 	Dependencies map[string]DepRef `json:"dependencies"`
-	RawSpec      json.RawMessage   `json:"spec"`    // adapter-specific payload
-	Context      string            `json:"context"` // project path (rel or abs)
+	RawSpec      json.RawMessage   `json:"spec"`     // adapter-specific payload
+	WorkDir      string            `json:"work_dir"` // project path (rel or abs)
 }
 
 type SearchMap struct {
@@ -45,9 +45,9 @@ type SearchMap struct {
 }
 
 func init() {
-	contextMapJSON := os.Getenv("CORE_CONTEXT_MAP")
-	if contextMapJSON != "" {
-		_ = json.Unmarshal([]byte(contextMapJSON), &contextMap)
+	workDirJSON := os.Getenv("CORE_WORK_DIR_MAP")
+	if workDirJSON != "" {
+		_ = json.Unmarshal([]byte(workDirJSON), &workDirMap)
 	}
 }
 
@@ -125,7 +125,7 @@ func (sm *SearchMap) Load(name string, verbose bool) (*MetaHeader, error) {
 	}
 
 	if verbose {
-		Log().Debugf("Reading %s config: %s\n", name, cfgPath)
+		Log().Debugf("reading %s config: %s\n", name, cfgPath)
 	}
 
 	data, err := sm.fs.ReadFile(cfgPath)
@@ -143,18 +143,18 @@ func (sm *SearchMap) Load(name string, verbose bool) (*MetaHeader, error) {
 	}
 
 	// Override from env/contextMap if present
-	if envCtx, ok := contextMap[h.Name]; ok {
-		h.Context = filepath.Clean(envCtx)
+	if envWorkDir, ok := workDirMap[h.Name]; ok {
+		h.WorkDir = filepath.Clean(envWorkDir)
 	}
 
 	// Make Context absolute if it’s relative
-	if h.Context != "" && !filepath.IsAbs(h.Context) {
+	if h.WorkDir != "" && !filepath.IsAbs(h.WorkDir) {
 		dir := filepath.Dir(cfgPath)
-		absCtx, err := filepath.Abs(filepath.Join(dir, h.Context))
+		absWorkDir, err := filepath.Abs(filepath.Join(dir, h.WorkDir))
 		if err != nil {
-			return nil, fmt.Errorf("resolve context %q: %w", h.Context, err)
+			return nil, fmt.Errorf("resolve context %q: %w", h.WorkDir, err)
 		}
-		h.Context = filepath.Clean(absCtx)
+		h.WorkDir = filepath.Clean(absWorkDir)
 	}
 
 	return &h, nil
@@ -174,7 +174,7 @@ func (sm *SearchMap) LoadAll(adapterID string) ([]*MetaHeader, error) {
 	for _, key := range keys {
 		meta, err := sm.Load(key, false)
 		if errors.Is(err, os.ErrNotExist) {
-			Log().Infof("Could not find config for: %s\n", key)
+			Log().Infof("could not find config for: %s\n", key)
 			continue
 		}
 		if err != nil {

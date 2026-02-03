@@ -94,7 +94,7 @@ func keyGen(adapter Adapter, adapterID string, item *MetaHeader, contextPath str
 	}
 
 	// Only context-discriminate if the adapter cares about context.
-	if _, ok := adapter.(Contextual); !ok || contextPath == "" {
+	if _, ok := adapter.(WorkDirSettable); !ok || contextPath == "" {
 		return key
 	}
 
@@ -110,7 +110,7 @@ func applyConfig(adapter Adapter, adapterID string, meta, itemMeta *MetaHeader) 
 	// Adapter-level config.
 	if meta != nil && len(meta.RawSpec) > 0 {
 		if configurable, ok := adapter.(Configurable); ok {
-			Log().Debugf("Setting config for adapter %s", adapterID)
+			Log().Debugf("setting config for adapter %s", adapterID)
 			if err := json.Unmarshal(meta.RawSpec, configurable.ConfigPtr()); err != nil {
 				return fmt.Errorf("decode %s spec: %w", adapterID, err)
 			}
@@ -119,7 +119,7 @@ func applyConfig(adapter Adapter, adapterID string, meta, itemMeta *MetaHeader) 
 	// Item-level config overlay.
 	if itemMeta != nil && len(itemMeta.RawSpec) > 0 {
 		if itemConfigurable, ok := adapter.(ItemConfigurable); ok {
-			Log().Debugf("Setting item config for adapter %s", adapterID)
+			Log().Debugf("setting item config for adapter %s", adapterID)
 			if err := json.Unmarshal(itemMeta.RawSpec, itemConfigurable.ItemConfigPtr(itemMeta.Name)); err != nil {
 				return fmt.Errorf("decode %s spec: %w", itemMeta.Name, err)
 			}
@@ -128,15 +128,15 @@ func applyConfig(adapter Adapter, adapterID string, meta, itemMeta *MetaHeader) 
 	return nil
 }
 
-func resolveContext(defaultContext string, metas ...*MetaHeader) string {
-	newContext := defaultContext
+func resolveWorkDir(defaultWorkDir string, metas ...*MetaHeader) string {
+	newWorkDir := defaultWorkDir
 	for _, m := range metas {
-		if m == nil || m.Context == "" {
+		if m == nil || m.WorkDir == "" {
 			continue
 		}
-		newContext = m.Context
+		newWorkDir = m.WorkDir
 	}
-	return newContext
+	return newWorkDir
 }
 
 func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
@@ -150,13 +150,13 @@ func debugAdapterInfo(zero Adapter, adapterID string, args ...string) {
 	if _, ok := zero.(Hydrater); ok {
 		implements = append(implements, "Hydrater")
 	}
-	if _, ok := zero.(Contextual); ok {
-		implements = append(implements, "Contextual")
+	if _, ok := zero.(WorkDirSettable); ok {
+		implements = append(implements, "WorkDirSettable")
 	}
 	if _, ok := zero.(Depender); ok {
 		implements = append(implements, "Depender")
 	}
-	Log().Debugf("Request adapter %s (%s) %v\n", adapterID, strings.Join(implements, ","), args)
+	Log().Debugf("request adapter %s (%s) %v\n", adapterID, strings.Join(implements, ","), args)
 }
 
 func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error) {
@@ -164,7 +164,7 @@ func (r *Registry) NewAdapter(adapterID string, args ...string) (Adapter, error)
 }
 
 // NewAdapter constructs or reuses an adapter instance in this registry.
-func (r *Registry) newAdapterWithContext(adapterID string, defaultContext string, args ...string) (Adapter, error) {
+func (r *Registry) newAdapterWithContext(adapterID string, defaultWorkDir string, args ...string) (Adapter, error) {
 	if r.searchMap == nil {
 		return nil, fmt.Errorf("core: no SearchMap configured; call NewSearchMap first")
 	}
@@ -196,21 +196,21 @@ func (r *Registry) newAdapterWithContext(adapterID string, defaultContext string
 		}
 	}
 
-	resolvedContext := resolveContext(defaultContext, meta, itemMeta)
+	resolvedWorkDir := resolveWorkDir(defaultWorkDir, meta, itemMeta)
 
-	regKey := keyGen(zero, adapterID, itemMeta, resolvedContext)
+	regKey := keyGen(zero, adapterID, itemMeta, resolvedWorkDir)
 
 	// Reuse existing adapter if present.
 	r.mu.RLock()
 	existing, ok := r.adapters[regKey]
 	r.mu.RUnlock()
 	if ok {
-		Log().Debugf("Reusing adapter: %s %v\n", adapterID, args)
+		Log().Debugf("reusing adapter: %s %v\n", adapterID, args)
 		return existing, nil
 	}
 
 	// Otherwise create a new instance.
-	Log().Debugf("Creating adapter: %s %s %v\n", adapterID, regKey, args)
+	Log().Debugf("creating adapter: %s %s %v\n", adapterID, regKey, args)
 	adapter := zero
 
 	r.mu.Lock()
@@ -222,17 +222,17 @@ func (r *Registry) newAdapterWithContext(adapterID string, defaultContext string
 		return nil, err
 	}
 
-	// Set the context (allowing dependency override logic).
-	if contextual, ok := adapter.(Contextual); ok && resolvedContext != "" {
-		Log().Debugf("Setting default context for adapter %s: %s\n", adapterID, resolvedContext)
-		contextual.SetContext(resolvedContext)
+	// Set the working directory (allowing dependency override logic).
+	if wdSetter, ok := adapter.(WorkDirSettable); ok && resolvedWorkDir != "" {
+		Log().Debugf("setting working directory for adapter %s: %s\n", adapterID, resolvedWorkDir)
+		wdSetter.SetWorkDir(resolvedWorkDir)
 	}
 
 	// Dependencies.
-	if err := applyDeps(adapter, resolvedContext, meta); err != nil {
+	if err := applyDeps(adapter, resolvedWorkDir, meta); err != nil {
 		return nil, fmt.Errorf("dependency resolution for %s: %w", adapterID, err)
 	}
-	if err := applyDeps(adapter, resolvedContext, itemMeta); err != nil {
+	if err := applyDeps(adapter, resolvedWorkDir, itemMeta); err != nil {
 		return nil, fmt.Errorf("dependency resolution for %s: %w", adapterID, err)
 	}
 
@@ -243,7 +243,7 @@ func (r *Registry) newAdapterWithContext(adapterID string, defaultContext string
 
 	// Hydration hook.
 	if hydrater, ok := adapter.(Hydrater); ok {
-		Log().Debugf("Hydrating adapter: %s\n", adapterID)
+		Log().Debugf("hydrating adapter: %s\n", adapterID)
 		if err := hydrater.Hydrate(context.Background()); err != nil {
 			return nil, fmt.Errorf("hydrating adapter %s: %v", adapterID, err)
 		}
@@ -293,7 +293,7 @@ func LoadAllAdaptersFrom[T any](r *Registry, adapterID string) ([]T, error) {
 	for _, meta := range metas {
 		a, err := NewAdapterAsFrom[T](r, adapterID, meta.Name)
 		if err != nil {
-			Log().Errorf("Error: %v\n", err)
+			Log().Errorf("error: %v\n", err)
 			continue
 		}
 		out = append(out, a)
